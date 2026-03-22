@@ -708,101 +708,295 @@ document.getElementById('inv-screen').addEventListener('mousedown',e=>{
 document.addEventListener('contextmenu',e=>e.preventDefault());
 
 // ══════════════════════════════════════════════════════════
-// RENDERER
+// RENDERER  —  frustum-culled, FOV-clipped, fog-attenuated
 // ══════════════════════════════════════════════════════════
 const gc=document.getElementById('game-canvas'),gctx=gc.getContext('2d');
 
+const DRAW_DIST=24;          // block radius rendered
+const FOV=Math.PI/2.2;
+const NEAR=0.05;
+const FOG_START=16;          // distance where fog begins
+const FOG_END=DRAW_DIST+2;   // distance where fog reaches full sky colour
+
+// Pre-allocated corner offsets (shared across all blocks)
+const CX=[0,1,1,0,0,1,1,0];
+const CY=[0,0,0,0,1,1,1,1];
+const CZ=[0,0,1,1,0,0,1,1];
+
+// Face definitions: vertex indices, world-space normal, colour index, shade
+const FACES=[
+  {v:[0,1,2,3],nx:0,ny:-1,nz:0,ci:1,sh:0.55}, // bottom
+  {v:[4,5,6,7],nx:0,ny: 1,nz:0,ci:0,sh:1.00}, // top
+  {v:[0,1,5,4],nx:0,ny: 0,nz:-1,ci:2,sh:0.80}, // south
+  {v:[2,3,7,6],nx:0,ny: 0,nz: 1,ci:2,sh:0.70}, // north
+  {v:[1,2,6,5],nx: 1,ny:0,nz:0,ci:3,sh:0.90}, // east
+  {v:[0,3,7,4],nx:-1,ny:0,nz:0,ci:3,sh:0.82}, // west
+];
+
+// Per-frame cached colours to avoid repeated shadeColor calls
+const _colCache={};
+function cachedShade(hex,sh){
+  const k=hex+'|'+sh;
+  if(_colCache[k])return _colCache[k];
+  return(_colCache[k]=shadeColor(hex,sh));
+}
+
+// Build frustum planes from camera transform (4 side planes + near plane).
+// Each plane: {nx,ny,nz,d}  — point is inside if dot(n,p)+d >= 0
+function buildFrustum(eyeX,eyeY,eyeZ,yaw,pitch,W,H){
+  const focalLen=W*0.5/Math.tan(FOV*0.5);
+  // Camera right & up in world space
+  const cy=Math.cos(yaw),sy=Math.sin(yaw);
+  const cp=Math.cos(pitch),sp=Math.sin(pitch);
+  // forward vector
+  const fx=cp*sy,fy=sp,fz=cp*cy;
+  // right vector (yaw only)
+  const rx=cy,ry=0,rz=-sy;
+  // up vector = forward x right, properly:
+  const ux=fy*rz-fz*ry, uy=fz*rx-fx*rz, uz=fx*ry-fy*rx;
+
+  const hw=W*0.5,hh=H*0.5;
+  const planes=[];
+
+  // Helper: plane from normal pointing inward
+  function addPlane(nx,ny,nz){
+    const len=Math.sqrt(nx*nx+ny*ny+nz*nz);
+    const nnx=nx/len,nny=ny/len,nnz=nz/len;
+    planes.push({nx:nnx,ny:nny,nz:nnz,d:-(nnx*eyeX+nny*eyeY+nnz*eyeZ)});
+  }
+
+  // Near plane
+  addPlane(fx,fy,fz);
+
+  // Left plane: normal = cross(up_screen_right_edge_dir, up)
+  // Screen edge directions in world space:
+  // left edge: forward*focal - right*hw  (un-normalised)
+  addPlane(fx*focalLen-rx*hw, fy*focalLen-ry*hw, fz*focalLen-rz*hw);
+  // right edge
+  addPlane(-(fx*focalLen+rx*hw), -(fy*focalLen+ry*hw), -(fz*focalLen+rz*hw));
+  // bottom edge
+  addPlane(fx*focalLen-ux*hh, fy*focalLen-uy*hh, fz*focalLen-uz*hh);
+  // top edge
+  addPlane(-(fx*focalLen+ux*hh), -(fy*focalLen+uy*hh), -(fz*focalLen+uz*hh));
+
+  return planes;
+}
+
+// Test AABB (min corner bx,by,bz, max = bx+1,by+1,bz+1) against frustum.
+// Returns false if fully outside any plane → cull it.
+function aabbInFrustum(planes,bx,by,bz){
+  for(const p of planes){
+    // Most positive vertex along plane normal
+    const px=p.nx>=0?bx+1:bx;
+    const py=p.ny>=0?by+1:by;
+    const pz=p.nz>=0?bz+1:bz;
+    if(p.nx*px+p.ny*py+p.nz*pz+p.d<-1.5)return false; // -1.5 slack for 1-block size
+  }
+  return true;
+}
+
+// Test chunk AABB against frustum (chunk spans cx*CSIZE to cx*CSIZE+CSIZE, etc.)
+function chunkInFrustum(planes,cx,cz){
+  const minX=cx*CSIZE,maxX=minX+CSIZE;
+  const minY=0,maxY=CHEIGHT;
+  const minZ=cz*CSIZE,maxZ=minZ+CSIZE;
+  for(const p of planes){
+    const px=p.nx>=0?maxX:minX;
+    const py=p.ny>=0?maxY:minY;
+    const pz=p.nz>=0?maxZ:minZ;
+    if(p.nx*px+p.ny*py+p.nz*pz+p.d<-CSIZE*2)return false;
+  }
+  return true;
+}
+
 function renderGame(){
   const W=gc.width,H=gc.height;
-  const skyG=gctx.createLinearGradient(0,0,0,H*0.5);
+  const halfW=W*0.5,halfH=H*0.5;
+  const focalLen=halfW/Math.tan(FOV*0.5);
+
+  // Sky
+  const skyG=gctx.createLinearGradient(0,0,0,H*0.55);
   skyG.addColorStop(0,'#1a6edd');skyG.addColorStop(1,'#5aaaff');
-  gctx.fillStyle=skyG;gctx.fillRect(0,0,W,H*0.5);
-  gctx.fillStyle='#5c8a3a';gctx.fillRect(0,H*0.5,W,H*0.5);
+  gctx.fillStyle=skyG;gctx.fillRect(0,0,W,H*0.55);
+  gctx.fillStyle='#5c8a3a';gctx.fillRect(0,H*0.55,W,H*0.45);
 
-  const FOV=Math.PI/2.2,halfW=W/2,halfH=H/2;
   const cp=Math.cos(player.pitch),sp=Math.sin(player.pitch);
-  const cy2=Math.cos(player.yaw),sy2=Math.sin(player.yaw);
+  const cy=Math.cos(player.yaw),sy=Math.sin(player.yaw);
   const eyeX=player.x,eyeY=player.y+1.62,eyeZ=player.z;
-  const focalLen=halfW/Math.tan(FOV/2);
-  const DRAW_DIST=14;
-  const px0=Math.floor(eyeX),pz0=Math.floor(eyeZ),py0=Math.floor(eyeY);
-  const blocks=[];
 
+  // Build frustum
+  const frustum=buildFrustum(eyeX,eyeY,eyeZ,player.yaw,player.pitch,W,H);
+
+  const px0=Math.floor(eyeX),pz0=Math.floor(eyeZ),py0=Math.floor(eyeY);
+  const DD2=DRAW_DIST*DRAW_DIST;
+
+  // ── Collect visible exposed blocks ──
+  const blocks=[];
   for(let dx=-DRAW_DIST;dx<=DRAW_DIST;dx++){
     for(let dz=-DRAW_DIST;dz<=DRAW_DIST;dz++){
-      if(dx*dx+dz*dz>DRAW_DIST*DRAW_DIST)continue;
-      const cxb=Math.floor((px0+dx)/CSIZE),czb=Math.floor((pz0+dz)/CSIZE);
+      if(dx*dx+dz*dz>DD2)continue;
+      const bxBase=px0+dx,bzBase=pz0+dz;
+      const cxb=Math.floor(bxBase/CSIZE),czb=Math.floor(bzBase/CSIZE);
+
+      // Chunk-level frustum cull
+      if(!chunkInFrustum(frustum,cxb,czb))continue;
+
       if(!chunks.has(chunkKey(cxb,czb)))getChunk(cxb,czb);
-      for(let dy=-8;dy<=12;dy++){
-        const bx=px0+dx,by=py0+dy,bz=pz0+dz;
+
+      for(let dy=-10;dy<=14;dy++){
+        const by=py0+dy;
         if(by<0||by>=CHEIGHT)continue;
-        const b=getBlock(bx,by,bz);
+        const b=getBlock(bxBase,by,bzBase);
         if(b===AIR)continue;
-        if(BLOCK_SOLID[getBlock(bx+1,by,bz)]&&BLOCK_SOLID[getBlock(bx-1,by,bz)]&&BLOCK_SOLID[getBlock(bx,by+1,bz)]&&BLOCK_SOLID[getBlock(bx,by-1,bz)]&&BLOCK_SOLID[getBlock(bx,by,bz+1)]&&BLOCK_SOLID[getBlock(bx,by,bz-1)])continue;
-        blocks.push({bx,by,bz,b});
+
+        // Block-level frustum cull (AABB vs frustum)
+        if(!aabbInFrustum(frustum,bxBase,by,bzBase))continue;
+
+        // Occlusion cull: skip fully surrounded blocks
+        if( BLOCK_SOLID[getBlock(bxBase+1,by,bzBase)]&&
+            BLOCK_SOLID[getBlock(bxBase-1,by,bzBase)]&&
+            BLOCK_SOLID[getBlock(bxBase,by+1,bzBase)]&&
+            BLOCK_SOLID[getBlock(bxBase,by-1,bzBase)]&&
+            BLOCK_SOLID[getBlock(bxBase,by,bzBase+1)]&&
+            BLOCK_SOLID[getBlock(bxBase,by,bzBase-1)])continue;
+
+        blocks.push(bxBase,by,bzBase,b); // flat array is faster
       }
     }
   }
+
+  // ── Project corners and sort by depth ──
   const projected=[];
-  const corners=[[0,0,0],[1,0,0],[1,0,1],[0,0,1],[0,1,0],[1,1,0],[1,1,1],[0,1,1]];
-  for(const {bx,by,bz,b} of blocks){
-    const pts=[];let allBehind=true;
-    for(const [cx3,cy3,cz3] of corners){
-      const rx=bx+cx3-eyeX,ry=by+cy3-eyeY,rz=bz+cz3-eyeZ;
-      const tx=cy2*rx-sy2*rz,tz=sy2*rx+cy2*rz;
-      const ty=cp*ry-sp*tz,depth=sp*ry+cp*tz;
-      if(depth>0.1)allBehind=false;
-      pts.push({sx:halfW+tx/Math.max(depth,0.01)*focalLen,sy:halfH-ty/Math.max(depth,0.01)*focalLen,depth});
+  const sx=new Float32Array(8),sy_=new Float32Array(8),sd=new Float32Array(8);
+
+  for(let i=0;i<blocks.length;i+=4){
+    const bx=blocks[i],by=blocks[i+1],bz=blocks[i+2],b=blocks[i+3];
+
+    // Centre-based quick depth cull + frustum dot
+    const rcx=bx+0.5-eyeX,rcy=by+0.5-eyeY,rcz=bz+0.5-eyeZ;
+    // Rotate centre to camera space
+    const tcx=cy*rcx-sy*rcz;
+    const tcz=sy*rcx+cy*rcz;
+    const tcy=cp*rcy-sp*tcz;
+    const centreDepth=sp*rcy+cp*tcz;
+    if(centreDepth<-1.2)continue; // fully behind
+
+    let allBehind=true;
+    for(let c=0;c<8;c++){
+      const rx=bx+CX[c]-eyeX,ry=by+CY[c]-eyeY,rz=bz+CZ[c]-eyeZ;
+      const tx=cy*rx-sy*rz,tz=sy*rx+cy*rz;
+      const ty=cp*ry-sp*tz;
+      const depth=sp*ry+cp*tz;
+      sd[c]=depth;
+      if(depth>NEAR)allBehind=false;
+      const d=Math.max(depth,NEAR);
+      sx[c]=halfW+tx/d*focalLen;
+      sy_[c]=halfH-ty/d*focalLen;
     }
     if(allBehind)continue;
-    const avgD=pts.reduce((s,p)=>s+p.depth,0)/8;
-    if(avgD<-2)continue;
-    projected.push({bx,by,bz,b,pts,avgD});
-  }
-  projected.sort((a,b)=>b.avgD-a.avgD);
 
-  const FACES=[
-    {verts:[0,1,2,3],normal:[0,-1,0],ci:1,shade:0.55},
-    {verts:[4,5,6,7],normal:[0,1,0],ci:0,shade:1.0},
-    {verts:[0,1,5,4],normal:[0,0,-1],ci:2,shade:0.8},
-    {verts:[2,3,7,6],normal:[0,0,1],ci:2,shade:0.72},
-    {verts:[1,2,6,5],normal:[1,0,0],ci:3,shade:0.9},
-    {verts:[0,3,7,4],normal:[-1,0,0],ci:3,shade:0.82},
-  ];
+    // Screen-space AABB cull — skip if no vertex in extended viewport
+    let minSX=Infinity,maxSX=-Infinity,minSY=Infinity,maxSY=-Infinity;
+    for(let c=0;c<8;c++){
+      if(sx[c]<minSX)minSX=sx[c];if(sx[c]>maxSX)maxSX=sx[c];
+      if(sy_[c]<minSY)minSY=sy_[c];if(sy_[c]>maxSY)maxSY=sy_[c];
+    }
+    if(maxSX<-W||minSX>W*2||maxSY<-H||minSY>H*2)continue;
+
+    // Fog factor based on horizontal distance
+    const hDist=Math.sqrt((bx+0.5-eyeX)**2+(bz+0.5-eyeZ)**2);
+    const fog=Math.max(0,Math.min(1,(hDist-FOG_START)/(FOG_END-FOG_START)));
+
+    projected.push({bx,by,bz,b,
+      sx:Float32Array.from(sx),sy:Float32Array.from(sy_),sd:Float32Array.from(sd),
+      avgD:centreDepth,fog});
+  }
+
+  // Back-to-front sort (painter's algorithm)
+  projected.sort((a,b2)=>b2.avgD-a.avgD);
+
   const hitBlock=raycast(5);
 
-  for(const {bx,by,bz,b,pts} of projected){
+  // ── Draw faces ──
+  for(const {bx,by,bz,b,sx:psx,sy:psy,sd:psd,avgD,fog} of projected){
     const cols=BCOLORS[b];if(!cols)continue;
     const isHit=hitBlock&&hitBlock.x===bx&&hitBlock.y===by&&hitBlock.z===bz;
+    const isWater=b===WATER;
+
     for(const face of FACES){
-      const [nx,ny,nz]=face.normal;
+      const {v,nx,ny,nz,ci,sh}=face;
+
+      // Neighbour occlusion: if solid opaque block in face direction, skip face
       const nb=getBlock(bx+nx,by+ny,bz+nz);
       if(BLOCK_SOLID[nb]&&!BLOCK_TRANSPARENT[nb])continue;
+
+      // Back-face cull: face normal must point toward camera
       const ex=eyeX-(bx+0.5),ey=eyeY-(by+0.5),ez=eyeZ-(bz+0.5);
-      if(nx*ex+ny*ey+nz*ez<0)continue;
-      const verts=face.verts.map(i=>pts[i]);
-      if(verts.some(v=>v.depth<0.05))continue;
-      if(!verts.some(v=>v.sx>-W&&v.sx<W*2&&v.sy>-H&&v.sy<H*2))continue;
-      gctx.beginPath();gctx.moveTo(verts[0].sx,verts[0].sy);
-      for(let i=1;i<verts.length;i++)gctx.lineTo(verts[i].sx,verts[i].sy);
+      if(nx*ex+ny*ey+nz*ez<=0)continue;
+
+      // All 4 verts of this face must be in front of near plane
+      if(psd[v[0]]<NEAR||psd[v[1]]<NEAR||psd[v[2]]<NEAR||psd[v[3]]<NEAR)continue;
+
+      const x0=psx[v[0]],y0=psy[v[0]];
+      const x1=psx[v[1]],y1=psy[v[1]];
+      const x2=psx[v[2]],y2=psy[v[2]];
+      const x3=psx[v[3]],y3=psy[v[3]];
+
+      // Screen-space cull for this face
+      const fminX=Math.min(x0,x1,x2,x3),fmaxX=Math.max(x0,x1,x2,x3);
+      const fminY=Math.min(y0,y1,y2,y3),fmaxY=Math.max(y0,y1,y2,y3);
+      if(fmaxX<0||fminX>W||fmaxY<0||fminY>H)continue;
+
+      const baseCol=cols[ci%cols.length];
+      const shadeVal=sh*(isWater?0.7:1);
+      let fillCol=cachedShade(baseCol,shadeVal);
+
+      // Apply distance fog by blending toward sky colour
+      if(fog>0){
+        // lerp toward fog colour #6ab0ff at fog factor
+        const fr=parseInt(baseCol.slice(1,3),16)*shadeVal*(isWater?0.7:1);
+        const fg2=parseInt(baseCol.slice(3,5),16)*shadeVal*(isWater?0.7:1);
+        const fb=parseInt(baseCol.slice(5,7),16)*shadeVal*(isWater?0.7:1);
+        const fogR=106,fogG=176,fogB=255;
+        fillCol=`rgb(${Math.round(fr+(fogR-fr)*fog)},${Math.round(fg2+(fogG-fg2)*fog)},${Math.round(fb+(fogB-fb)*fog)})`;
+      }
+
+      gctx.beginPath();
+      gctx.moveTo(x0,y0);gctx.lineTo(x1,y1);gctx.lineTo(x2,y2);gctx.lineTo(x3,y3);
       gctx.closePath();
-      gctx.fillStyle=shadeColor(cols[face.ci%cols.length],face.shade*(b===WATER?0.7:1));
+      gctx.fillStyle=fillCol;
       gctx.fill();
-      if(isHit){gctx.strokeStyle='rgba(0,0,0,0.35)';gctx.lineWidth=0.5;gctx.stroke();gctx.fillStyle='rgba(255,255,255,0.12)';gctx.fill();}
+
+      if(isHit&&fog===0){
+        gctx.strokeStyle='rgba(0,0,0,0.35)';gctx.lineWidth=0.5;gctx.stroke();
+        gctx.fillStyle='rgba(255,255,255,0.12)';gctx.fill();
+      }
     }
   }
 
-  // Break overlay
+  // Break-progress overlay
   if(player.breakTarget&&player.breakProgress>0){
-    const {x:bx,y:by,z:bz}=player.breakTarget;
-    for(const {bx:pbx,by:pby,bz:pbz,pts} of projected){
-      if(pbx===bx&&pby===by&&pbz===bz){
+    const {x:btx,y:bty,z:btz}=player.breakTarget;
+    for(const entry of projected){
+      if(entry.bx===btx&&entry.by===bty&&entry.bz===btz){
         gctx.fillStyle=`rgba(0,0,0,${player.breakProgress*0.65})`;
-        for(const face of FACES){const verts=face.verts.map(i=>pts[i]);if(verts.some(v=>v.depth<0.05))continue;gctx.beginPath();gctx.moveTo(verts[0].sx,verts[0].sy);for(let i=1;i<verts.length;i++)gctx.lineTo(verts[i].sx,verts[i].sy);gctx.closePath();gctx.fill();}
+        for(const face of FACES){
+          const{v,nx,ny,nz}=face;
+          if(entry.sd[v[0]]<NEAR||entry.sd[v[1]]<NEAR||entry.sd[v[2]]<NEAR||entry.sd[v[3]]<NEAR)continue;
+          const ex=eyeX-(btx+0.5),ey=eyeY-(bty+0.5),ez=eyeZ-(btz+0.5);
+          if(nx*ex+ny*ey+nz*ez<=0)continue;
+          gctx.beginPath();
+          gctx.moveTo(entry.sx[v[0]],entry.sy[v[0]]);
+          gctx.lineTo(entry.sx[v[1]],entry.sy[v[1]]);
+          gctx.lineTo(entry.sx[v[2]],entry.sy[v[2]]);
+          gctx.lineTo(entry.sx[v[3]],entry.sy[v[3]]);
+          gctx.closePath();gctx.fill();
+        }
         break;
       }
     }
   }
+
   drawHand(W,H,mouseDown&&mouseBtn===0&&player.breakTarget);
 }
 
@@ -872,17 +1066,19 @@ function updateHUD(){
   tl.textContent=selB!==AIR?BLOCK_NAME[selB]:'';
 
   document.getElementById('debug').innerHTML=
-    `X:${player.x.toFixed(1)} Y:${player.y.toFixed(1)} Z:${player.z.toFixed(1)}<br>Seed:${worldSeed}`;
+    `FPS: ${fpsSmooth} | X:${player.x.toFixed(1)} Y:${player.y.toFixed(1)} Z:${player.z.toFixed(1)}<br>Render dist: ${DRAW_DIST} | Seed:${worldSeed}`;
 }
 
 // ══════════════════════════════════════════════════════════
 // GAME LOOP
 // ══════════════════════════════════════════════════════════
-let lastTime2=0,hungerTimer=0,healTimer=0;
+let lastTime2=0,hungerTimer=0,healTimer=0,fpsSmooth=60,fpsFrames=0,fpsSec=0;
 function gameLoop(ts){
   if(!gameRunning)return;
   const dt=Math.min((ts-lastTime2)/1000,0.05);lastTime2=ts;
   if(!paused&&!invOpen){
+    fpsFrames++;fpsSec+=dt;
+    if(fpsSec>=0.5){fpsSmooth=Math.round(fpsFrames/fpsSec);fpsFrames=0;fpsSec=0;}
     updatePlayer(dt);
     if(gc.width!==window.innerWidth||gc.height!==window.innerHeight){gc.width=window.innerWidth;gc.height=window.innerHeight;}
     renderGame();
@@ -940,9 +1136,12 @@ function updatePlayer(dt){
     } else {player.breakTarget=null;player.breakProgress=0;}
   } else if(!mouseDown||mouseBtn!==0){player.breakTarget=null;player.breakProgress=0;}
 
-  // Chunk loading
+  // Chunk loading — keep a ring of chunks loaded around the player
   const pcx=Math.floor(player.x/CSIZE),pcz=Math.floor(player.z/CSIZE);
-  for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++){const k=chunkKey(pcx+dx,pcz+dz);if(!chunks.has(k))getChunk(pcx+dx,pcz+dz);}
+  const LOAD_R=Math.ceil(DRAW_DIST/CSIZE)+1;
+  for(let dx=-LOAD_R;dx<=LOAD_R;dx++)for(let dz=-LOAD_R;dz<=LOAD_R;dz++){
+    const k=chunkKey(pcx+dx,pcz+dz);if(!chunks.has(k))getChunk(pcx+dx,pcz+dz);
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1018,7 +1217,7 @@ function startGame(slot){
   Object.assign(player,{vx:0,vy:0,vz:0,yaw:0,pitch:0,onGround:false,health:20,hunger:20,breakProgress:0,breakTarget:null});
   player.x=0.5;player.z=0.5;
   initInventory();
-  pregenChunks(0,0,2);
+  pregenChunks(0,0,3);
   player.y=terrainHeight(0,0,worldSeed)+2;
   gc.width=window.innerWidth;gc.height=window.innerHeight;
   document.getElementById('lock-msg').style.display='block';
