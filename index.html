@@ -77,6 +77,51 @@ html,body{width:100%;height:100%;background:#000;font-family:'Press Start 2P',mo
 #pickup-toast{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);font-size:8px;color:#fff;text-shadow:1px 1px 0 #000;background:rgba(0,0,0,0.65);padding:4px 10px;white-space:nowrap;opacity:0;transition:opacity 0.3s;}
 #pickup-toast.show{opacity:1;}
 
+/* ══ AUTH SCREEN ══ */
+#auth-panel{
+  background:rgba(0,0,0,0.82);
+  border:3px solid #222;border-top-color:#888;border-left-color:#888;
+  padding:24px 28px;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  width:min(340px,88vw);
+}
+#auth-logo{font-size:clamp(14px,3vw,24px);text-align:center;letter-spacing:2px;margin-bottom:4px;}
+#auth-logo .ace{color:#ffe44a;text-shadow:3px 3px 0 #997700;}
+#auth-logo .craft{color:#7ed634;text-shadow:3px 3px 0 #3a7200;}
+#auth-tabs{display:flex;gap:0;width:100%;}
+.auth-tab{flex:1;padding:8px 0;font-family:'Press Start 2P',monospace;font-size:8px;color:#888;background:rgba(255,255,255,0.05);border:2px solid #333;cursor:pointer;text-align:center;transition:all 0.1s;}
+.auth-tab:first-child{border-right:none;}
+.auth-tab.active{color:#fff;background:rgba(255,255,255,0.12);border-color:#666;}
+.auth-field{display:flex;flex-direction:column;gap:6px;width:100%;}
+.auth-field label{font-size:7px;color:#aaa;text-shadow:1px 1px 0 #000;}
+.auth-field input{
+  font-family:'Press Start 2P',monospace;font-size:8px;
+  background:#111;color:#fff;
+  border:2px solid #444;border-top-color:#222;border-left-color:#222;
+  padding:8px 10px;outline:none;width:100%;
+  text-shadow:1px 1px 0 #000;
+}
+.auth-field input:focus{border-color:#7ec850;border-top-color:#4a8a10;border-left-color:#4a8a10;}
+#auth-error{font-size:7px;color:#ff6666;text-shadow:1px 1px 0 #000;text-align:center;min-height:14px;}
+#auth-success{font-size:7px;color:#7ec850;text-shadow:1px 1px 0 #000;text-align:center;min-height:14px;}
+.auth-btn{
+  width:100%;padding:0;border:none;background:none;cursor:pointer;
+  font-family:'Press Start 2P',monospace;font-size:9px;color:#fff;
+  text-shadow:1px 1px 0 #3a5700;outline:none;user-select:none;
+}
+.auth-btn-inner{
+  display:flex;align-items:center;justify-content:center;height:40px;
+  background:#8bac0f;
+  border-top:3px solid #b8d82a;border-left:3px solid #b8d82a;
+  border-right:3px solid #3a5700;border-bottom:3px solid #2a4000;
+  transition:filter 0.05s;
+}
+.auth-btn:hover .auth-btn-inner{background:#9dc412;filter:brightness(1.15);}
+.auth-btn:active .auth-btn-inner{border-top-color:#2a4000;border-left-color:#2a4000;border-right-color:#b8d82a;border-bottom-color:#b8d82a;transform:translateY(2px);}
+.auth-btn.secondary .auth-btn-inner{background:#3e3e3e;border-top-color:#5a5a5a;border-left-color:#5a5a5a;border-right-color:#1a1a1a;border-bottom-color:#111;color:#aaa;}
+.auth-btn.secondary:hover .auth-btn-inner{filter:brightness(1.2);}
+#auth-user-badge{position:fixed;top:10px;right:12px;font-size:7px;color:rgba(255,255,255,0.7);text-shadow:1px 1px 0 #000;z-index:20;background:rgba(0,0,0,0.5);padding:4px 8px;border:1px solid #444;display:none;}
+
 /* ══ INVENTORY SCREEN ══ */
 #inv-screen{
   position:absolute;inset:0;
@@ -153,8 +198,45 @@ html,body{width:100%;height:100%;background:#000;font-family:'Press Start 2P',mo
 <div class="vignette"></div>
 <div class="ui-backdrop"></div>
 
+<!-- AUTH SCREEN (login / register) -->
+<div class="screen" id="screen-auth">
+  <div id="auth-panel">
+    <div id="auth-logo"><span class="ace">ACE</span><span class="craft">CRAFT</span></div>
+
+    <div id="auth-tabs">
+      <div class="auth-tab active" id="tab-login">Login</div>
+      <div class="auth-tab" id="tab-register">Register</div>
+    </div>
+
+    <!-- Login form -->
+    <div id="form-login" style="width:100%;display:flex;flex-direction:column;gap:12px;">
+      <div class="auth-field"><label>Email</label><input type="email" id="login-email" placeholder="you@email.com" autocomplete="email"></div>
+      <div class="auth-field"><label>Password</label><input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"></div>
+      <div id="auth-error" style="display:none;"></div>
+      <button class="auth-btn" id="btn-login"><div class="auth-btn-inner">Login</div></button>
+    </div>
+
+    <!-- Register form -->
+    <div id="form-register" style="width:100%;display:flex;flex-direction:column;gap:12px;display:none;">
+      <div class="auth-field"><label>Username</label><input type="text" id="reg-username" placeholder="Steve123" autocomplete="username" maxlength="20"></div>
+      <div class="auth-field"><label>Email</label><input type="email" id="reg-email" placeholder="you@email.com" autocomplete="email"></div>
+      <div class="auth-field"><label>Password</label><input type="password" id="reg-password" placeholder="min 6 characters" autocomplete="new-password"></div>
+      <div id="auth-error-reg" style="display:none;font-size:7px;color:#ff6666;text-shadow:1px 1px 0 #000;text-align:center;"></div>
+      <div id="auth-success-reg" style="display:none;font-size:7px;color:#7ec850;text-shadow:1px 1px 0 #000;text-align:center;"></div>
+      <button class="auth-btn" id="btn-register"><div class="auth-btn-inner">Create Account</div></button>
+    </div>
+
+    <button class="auth-btn secondary" id="btn-play-guest" style="width:100%;margin-top:-4px;">
+      <div class="auth-btn-inner" style="font-size:7px;color:#aaa;">Play as Guest</div>
+    </button>
+  </div>
+</div>
+
+<!-- signed-in badge -->
+<div id="auth-user-badge"></div>
+
 <!-- MAIN MENU -->
-<div class="screen" id="screen-main">
+<div class="screen hidden" id="screen-main">
   <div class="logo-wrap">
     <span class="logo"><span class="ace">ACE</span><span class="craft">CRAFT</span><span class="edition">JAVA  EDITION</span></span>
   </div>
@@ -265,6 +347,187 @@ html,body{width:100%;height:100%;background:#000;font-family:'Press Start 2P',mo
 
 <script>
 // ══════════════════════════════════════════════════════════
+// SUPABASE AUTH
+// ══════════════════════════════════════════════════════════
+const SUPA_URL='https://cizhyzwatjptrnueiyny.supabase.co';
+const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpemh5endhdGpwdHJudWVpeW55Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNDU5MDksImV4cCI6MjA4OTcyMTkwOX0.5hpNbu31VEAVxOAoRbLLOTNXbq1Ni7UY2juKdIyMIoM';
+
+// Lightweight Supabase REST auth wrapper (no SDK needed)
+const supa={
+  async signUp(email,password,username){
+    // 1. Create auth user
+    const r=await fetch(`${SUPA_URL}/auth/v1/signup`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SUPA_KEY},
+      body:JSON.stringify({email,password})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.msg||d.error_description||'Sign up failed');
+    // 2. Insert player profile row
+    if(d.user?.id){
+      await fetch(`${SUPA_URL}/rest/v1/players`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':`Bearer ${d.access_token}`},
+        body:JSON.stringify({id:d.user.id,username,email})
+      });
+    }
+    return d;
+  },
+  async signIn(email,password){
+    const r=await fetch(`${SUPA_URL}/auth/v1/token?grant_type=password`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SUPA_KEY},
+      body:JSON.stringify({email,password})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.msg||d.error_description||'Login failed');
+    return d;
+  },
+  async getUser(token){
+    const r=await fetch(`${SUPA_URL}/auth/v1/user`,{
+      headers:{'apikey':SUPA_KEY,'Authorization':`Bearer ${token}`}
+    });
+    if(!r.ok) return null;
+    return r.json();
+  },
+  async getProfile(token,userId){
+    const r=await fetch(`${SUPA_URL}/rest/v1/players?id=eq.${userId}&select=username`,{
+      headers:{'apikey':SUPA_KEY,'Authorization':`Bearer ${token}`}
+    });
+    if(!r.ok) return null;
+    const rows=await r.json();
+    return rows[0]||null;
+  }
+};
+
+// Session state
+let authSession=null; // {access_token, user:{id,email}, username}
+let isGuest=false;
+
+function setSession(session,username){
+  authSession=session;
+  const badge=document.getElementById('auth-user-badge');
+  if(session&&username){
+    badge.textContent='▶ '+username;
+    badge.style.display='block';
+  } else if(isGuest){
+    badge.textContent='▶ Guest';
+    badge.style.display='block';
+  } else {
+    badge.style.display='none';
+  }
+}
+
+// Restore session from localStorage on page load
+function tryRestoreSession(){
+  try{
+    const raw=localStorage.getItem('acecraft_session');
+    if(!raw) return false;
+    const s=JSON.parse(raw);
+    if(!s.access_token) return false;
+    // Verify token is still valid
+    supa.getUser(s.access_token).then(user=>{
+      if(user){
+        supa.getProfile(s.access_token,user.id).then(profile=>{
+          authSession={access_token:s.access_token,user};
+          setSession(authSession,profile?.username||user.email);
+          showScreen(document.getElementById('screen-main'));
+        });
+      } else {
+        localStorage.removeItem('acecraft_session');
+      }
+    });
+    return true;
+  } catch{ return false; }
+}
+
+// ── Tab switching ──
+document.getElementById('tab-login').addEventListener('click',()=>{
+  document.getElementById('tab-login').classList.add('active');
+  document.getElementById('tab-register').classList.remove('active');
+  document.getElementById('form-login').style.display='flex';
+  document.getElementById('form-register').style.display='none';
+});
+document.getElementById('tab-register').addEventListener('click',()=>{
+  document.getElementById('tab-register').classList.add('active');
+  document.getElementById('tab-login').classList.remove('active');
+  document.getElementById('form-register').style.display='flex';
+  document.getElementById('form-login').style.display='none';
+});
+
+// ── Login ──
+document.getElementById('btn-login').addEventListener('click',async()=>{
+  const email=document.getElementById('login-email').value.trim();
+  const password=document.getElementById('login-password').value;
+  const errEl=document.getElementById('auth-error');
+  errEl.style.display='none';
+  if(!email||!password){errEl.textContent='Please fill in all fields.';errEl.style.display='block';return;}
+  const btn=document.getElementById('btn-login');
+  btn.querySelector('.auth-btn-inner').textContent='Logging in...';
+  try{
+    const session=await supa.signIn(email,password);
+    const profile=await supa.getProfile(session.access_token,session.user.id);
+    const username=profile?.username||session.user.email;
+    localStorage.setItem('acecraft_session',JSON.stringify({access_token:session.access_token}));
+    setSession(session,username);
+    isGuest=false;
+    showScreen(document.getElementById('screen-main'));
+  } catch(e){
+    errEl.textContent=e.message;errEl.style.display='block';
+  } finally{
+    btn.querySelector('.auth-btn-inner').textContent='Login';
+  }
+});
+
+// ── Register ──
+document.getElementById('btn-register').addEventListener('click',async()=>{
+  const username=document.getElementById('reg-username').value.trim();
+  const email=document.getElementById('reg-email').value.trim();
+  const password=document.getElementById('reg-password').value;
+  const errEl=document.getElementById('auth-error-reg');
+  const okEl=document.getElementById('auth-success-reg');
+  errEl.style.display='none';okEl.style.display='none';
+  if(!username||!email||!password){errEl.textContent='Please fill in all fields.';errEl.style.display='block';return;}
+  if(username.length<3){errEl.textContent='Username must be 3+ characters.';errEl.style.display='block';return;}
+  if(password.length<6){errEl.textContent='Password must be 6+ characters.';errEl.style.display='block';return;}
+  const btn=document.getElementById('btn-register');
+  btn.querySelector('.auth-btn-inner').textContent='Creating...';
+  try{
+    const result=await supa.signUp(email,password,username);
+    if(result.user&&!result.session){
+      // Email confirmation required
+      okEl.textContent='Check your email to confirm your account!';
+      okEl.style.display='block';
+    } else if(result.session){
+      // Auto-confirmed
+      localStorage.setItem('acecraft_session',JSON.stringify({access_token:result.session.access_token}));
+      setSession(result.session,username);
+      isGuest=false;
+      showScreen(document.getElementById('screen-main'));
+    }
+  } catch(e){
+    errEl.textContent=e.message;errEl.style.display='block';
+  } finally{
+    btn.querySelector('.auth-btn-inner').textContent='Create Account';
+  }
+});
+
+// ── Guest ──
+document.getElementById('btn-play-guest').addEventListener('click',()=>{
+  isGuest=true;authSession=null;
+  setSession(null,null);
+  showScreen(document.getElementById('screen-main'));
+});
+
+// ── Allow pressing Enter to submit ──
+['login-email','login-password'].forEach(id=>{
+  document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('btn-login').click();});
+});
+['reg-username','reg-email','reg-password'].forEach(id=>{
+  document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('btn-register').click();});
+});
+
+// ══════════════════════════════════════════════════════════
 // PANORAMA
 // ══════════════════════════════════════════════════════════
 const panCanvas=document.getElementById('panorama'),panCtx=panCanvas.getContext('2d');
@@ -324,10 +587,14 @@ drawThumb(document.getElementById('thumb-3'),3);
 // ══════════════════════════════════════════════════════════
 // MENU NAV
 // ══════════════════════════════════════════════════════════
-const screenMain=document.getElementById('screen-main'),screenSP=document.getElementById('screen-sp'),screenGame=document.getElementById('screen-game');
+const screenMain=document.getElementById('screen-main'),screenSP=document.getElementById('screen-sp'),screenGame=document.getElementById('screen-game'),screenAuth=document.getElementById('screen-auth');
 function showScreen(el){document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));el.classList.remove('hidden');}
 function flashBtn(btn){if(btn.classList.contains('disabled'))return;const i=btn.querySelector('.mc-btn-inner');i.style.filter='brightness(1.7)';setTimeout(()=>i.style.filter='',130);}
 document.querySelectorAll('#screen-main .mc-btn').forEach(b=>b.addEventListener('click',()=>flashBtn(b)));
+
+// On load: show auth screen (or restore session straight to main menu)
+showScreen(screenAuth);
+tryRestoreSession();
 document.getElementById('btn-singleplayer').addEventListener('click',()=>setTimeout(()=>showScreen(screenSP),140));
 document.getElementById('btn-sp-back').addEventListener('click',()=>{selectedWorld=null;updateActionBtns();document.querySelectorAll('.world-entry').forEach(e=>e.classList.remove('selected'));setTimeout(()=>showScreen(screenMain),140);});
 let selectedWorld=null;
