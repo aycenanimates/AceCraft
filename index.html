@@ -361,6 +361,388 @@ const BCOLORS={
 const BHARD={[AIR]:0,[GRASS]:0.6,[DIRT]:0.5,[STONE]:1.5,[WOOD]:1.2,[LEAVES]:0.2,[SAND]:0.5,[WATER]:100,[GRAVEL]:0.6,[COAL]:3,[IRON]:3,[GOLD]:3,[DIAMOND]:5,[BEDROCK]:100,[CRAFTING]:1,[FURNACE]:1.5};
 
 // ══════════════════════════════════════════════════════════
+// PIXEL-ART TEXTURE BAKER
+// Each face texture is a 16×16 canvas baked once at startup.
+// Key: "blockType:faceIndex" (0=top,1=bottom,2=south,3=north,4=east,5=west)
+// ══════════════════════════════════════════════════════════
+const TEX_SIZE=16;
+const texCache={}; // key -> ImageData or canvas
+
+function mkTex(drawFn){
+  const c=document.createElement('canvas');
+  c.width=c.height=TEX_SIZE;
+  drawFn(c.getContext('2d'),TEX_SIZE);
+  return c;
+}
+
+// Seeded deterministic noise helpers
+function px(x,y,seed){return Math.abs(Math.sin(x*127.1+y*311.7+seed*74.3)*43758.5453)%1;}
+
+function bakeTextures(){
+  const T=TEX_SIZE;
+
+  // ── GRASS TOP ──
+  // Base green, pixel blades of slightly different greens, occasional dark pixel
+  texCache[`${GRASS}:top`]=mkTex((ctx)=>{
+    const greens=['#5aaa1a','#62bb20','#4e9814','#70cc24','#52a016','#44880f'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      const n=px(x,y,1);
+      ctx.fillStyle=greens[Math.floor(n*greens.length)];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Darker pixel cracks / depth hints
+    [[2,3],[5,1],[8,6],[11,2],[14,9],[3,11],[7,14],[12,5],[1,8],[9,12]].forEach(([x,y])=>{
+      ctx.fillStyle='#3a7a0a';ctx.fillRect(x,y,1,1);
+    });
+    // Bright highlight pixels
+    [[1,0],[6,3],[10,1],[4,7],[13,4],[0,13],[8,10]].forEach(([x,y])=>{
+      ctx.fillStyle='#80dd2a';ctx.fillRect(x,y,1,1);
+    });
+  });
+
+  // ── GRASS SIDE ──
+  // Top 3px = green band with blades, rest = dirt
+  texCache[`${GRASS}:side`]=mkTex((ctx)=>{
+    // Dirt body
+    const dirts=['#7a5235','#6e4a2d','#845a3a','#724e31','#8a5e3e'];
+    for(let y=3;y<T;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=dirts[Math.floor(px(x,y,5)*dirts.length)];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Dirt speckles
+    [[2,5],[6,8],[10,6],[14,10],[4,12],[8,14],[12,9],[1,7],[11,13]].forEach(([x,y])=>{
+      ctx.fillStyle='#5a3a20';ctx.fillRect(x,y,1,1);
+    });
+    // Green top stripe (3px)
+    const greens=['#5aaa1a','#62bb20','#4e9814','#52a016'];
+    for(let y=0;y<3;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=greens[Math.floor(px(x,y+20,2)*greens.length)];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Grass blades dipping down (some pixels at y=3 are green)
+    [1,3,5,7,9,11,13,15].forEach(x=>{
+      if(px(x,99,3)>0.5){ctx.fillStyle='#4a9010';ctx.fillRect(x,3,1,1);}
+    });
+    // Dark border below grass stripe
+    ctx.fillStyle='rgba(0,0,0,0.25)';ctx.fillRect(0,3,T,1);
+  });
+
+  // ── DIRT ──
+  texCache[`${DIRT}:all`]=mkTex((ctx)=>{
+    const dirts=['#7a5235','#6e4a2d','#845a3a','#724e31','#8a5e3e','#7e5538'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=dirts[Math.floor(px(x,y,7)*dirts.length)];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Speckle pattern
+    [[1,1],[4,3],[7,1],[10,4],[13,2],[2,7],[5,9],[9,6],[12,8],[15,5],[3,12],[6,14],[11,11],[14,13],[0,15]].forEach(([x,y])=>{
+      ctx.fillStyle=px(x*3,y*3,8)>0.5?'#5a3a20':'#9a6845';
+      ctx.fillRect(x,y,1,1);
+    });
+  });
+
+  // ── STONE ──
+  texCache[`${STONE}:all`]=mkTex((ctx)=>{
+    const stones=['#888','#808080','#909090','#787878','#848484'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=stones[Math.floor(px(x,y,11)*stones.length)];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Crack lines
+    ctx.fillStyle='#666';
+    [[3,0],[4,0],[4,1],[5,1],[5,2],[5,3],[6,3]].forEach(([x,y])=>ctx.fillRect(x,y,1,1));
+    [[10,8],[11,8],[11,9],[12,9],[12,10],[11,10],[10,10]].forEach(([x,y])=>ctx.fillRect(x,y,1,1));
+    [[0,12],[1,12],[1,13],[2,14],[3,14]].forEach(([x,y])=>ctx.fillRect(x,y,1,1));
+    // Highlight
+    ctx.fillStyle='#aaa';
+    [[3,1],[10,9],[1,13]].forEach(([x,y])=>ctx.fillRect(x,y,1,1));
+  });
+
+  // ── WOOD SIDE ──
+  texCache[`${WOOD}:side`]=mkTex((ctx)=>{
+    // Vertical grain lines
+    const barks=['#8b5e15','#7a5210','#9a6820','#845515','#a07020'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      const grain=Math.floor(px(x,y*0.3,15)*barks.length);
+      ctx.fillStyle=barks[grain];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Dark ring lines (horizontal bands every ~5px simulating wood rings)
+    [4,9,14].forEach(y=>{
+      for(let x=0;x<T;x++){
+        ctx.fillStyle='rgba(0,0,0,0.2)';ctx.fillRect(x,y,1,1);
+      }
+    });
+    // Vertical dark grain streaks
+    [2,7,12].forEach(x=>{
+      for(let y=0;y<T;y++){
+        if(px(x,y,16)>0.6){ctx.fillStyle='rgba(0,0,0,0.15)';ctx.fillRect(x,y,1,1);}
+      }
+    });
+  });
+
+  // ── WOOD TOP/BOTTOM ──
+  texCache[`${WOOD}:top`]=mkTex((ctx)=>{
+    // Concentric ring pattern
+    ctx.fillStyle='#b8822a';ctx.fillRect(0,0,T,T);
+    // Rings from centre
+    const cx=7.5,cy=7.5;
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      const d=Math.sqrt((x-cx)**2+(y-cy)**2);
+      const ring=Math.floor(d*1.2)%3;
+      if(ring===0)ctx.fillStyle='#a07020';
+      else if(ring===1)ctx.fillStyle='#b8822a';
+      else ctx.fillStyle='#c89030';
+      ctx.fillRect(x,y,1,1);
+    }
+    // Centre dark spot
+    ctx.fillStyle='#7a5010';
+    [[7,7],[8,7],[7,8],[8,8]].forEach(([x,y])=>ctx.fillRect(x,y,1,1));
+  });
+
+  // ── LEAVES ──
+  texCache[`${LEAVES}:all`]=mkTex((ctx)=>{
+    const leafcols=['#2a8a12','#246e0e','#34a018','#1e6a0a','#3aaa1a','#288014'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      const n=px(x,y,22);
+      if(n<0.12){ctx.fillStyle='rgba(0,0,0,0)';ctx.clearRect(x,y,1,1);}// transparent holes
+      else{ctx.fillStyle=leafcols[Math.floor(n*leafcols.length)];ctx.fillRect(x,y,1,1);}
+    }
+    // Bright veins
+    [[4,4],[8,2],[12,6],[3,10],[7,13],[11,9],[5,7],[9,5]].forEach(([x,y])=>{
+      ctx.fillStyle='#50cc20';ctx.fillRect(x,y,1,1);
+    });
+  });
+
+  // ── SAND ──
+  texCache[`${SAND}:all`]=mkTex((ctx)=>{
+    const sands=['#d4c46a','#c8ba60','#dece74','#c0b058','#d8c86e'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=sands[Math.floor(px(x,y,30)*sands.length)];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Subtle dark grain
+    [[2,3],[5,7],[9,2],[13,5],[1,11],[7,9],[11,14],[14,1],[3,13]].forEach(([x,y])=>{
+      ctx.fillStyle='#b8a450';ctx.fillRect(x,y,1,1);
+    });
+  });
+
+  // ── GRAVEL ──
+  texCache[`${GRAVEL}:all`]=mkTex((ctx)=>{
+    // Patchy pebbles
+    const gravels=['#8a8a8a','#7a7a7a','#9a9a9a','#707070','#848484'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=gravels[Math.floor(px(x,y,35)*gravels.length)];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Pebble outlines
+    [[2,2,3,2],[7,5,3,2],[12,3,2,2],[1,9,3,3],[6,11,4,2],[11,8,2,3],[3,13,3,2],[9,13,3,3],[13,12,2,2]].forEach(([x,y,w,h])=>{
+      ctx.strokeStyle='#555';ctx.lineWidth=0.5;ctx.strokeRect(x+0.5,y+0.5,w,h);
+    });
+  });
+
+  // ── WATER ──
+  texCache[`${WATER}:all`]=mkTex((ctx)=>{
+    const waves=['#2255cc','#1a4dcc','#2860dd','#1e50bb','#2458d4'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=waves[Math.floor(px(x,y,40)*waves.length)];
+      ctx.fillRect(x,y,1,1);
+    }
+    // Wave highlight lines
+    ctx.fillStyle='rgba(100,160,255,0.5)';
+    [[1,2,5,1],[8,5,4,1],[2,9,6,1],[10,12,4,1],[0,14,3,1]].forEach(([x,y,w,h])=>ctx.fillRect(x,y,w,h));
+  });
+
+  // ── COAL ORE ──
+  texCache[`${COAL}:all`]=mkTex((ctx)=>{
+    // Stone base
+    const stones=['#888','#808080','#888888'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=stones[Math.floor(px(x,y,50)*stones.length)];ctx.fillRect(x,y,1,1);
+    }
+    // Coal vein blobs
+    [[3,2,3,2],[10,3,3,3],[2,9,2,3],[9,10,4,2],[5,13,3,2],[12,12,2,3]].forEach(([x,y,w,h])=>{
+      ctx.fillStyle='#222';ctx.fillRect(x,y,w,h);
+      ctx.fillStyle='#444';ctx.fillRect(x,y,1,1);
+    });
+  });
+
+  // ── IRON ORE ──
+  texCache[`${IRON}:all`]=mkTex((ctx)=>{
+    const stones=['#888','#808080','#888888'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){ctx.fillStyle=stones[Math.floor(px(x,y,55)*stones.length)];ctx.fillRect(x,y,1,1);}
+    [[2,3,3,2],[9,2,3,3],[1,10,2,2],[10,9,3,3],[4,13,3,2],[12,13,2,2]].forEach(([x,y,w,h])=>{
+      ctx.fillStyle='#cc8844';ctx.fillRect(x,y,w,h);
+      ctx.fillStyle='#eebb88';ctx.fillRect(x,y,1,1);
+    });
+  });
+
+  // ── GOLD ORE ──
+  texCache[`${GOLD}:all`]=mkTex((ctx)=>{
+    const stones=['#888','#808080','#888888'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){ctx.fillStyle=stones[Math.floor(px(x,y,60)*stones.length)];ctx.fillRect(x,y,1,1);}
+    [[3,2,3,3],[10,3,2,3],[2,10,3,2],[10,10,3,3],[5,13,3,2]].forEach(([x,y,w,h])=>{
+      ctx.fillStyle='#d4a017';ctx.fillRect(x,y,w,h);
+      ctx.fillStyle='#ffcc44';ctx.fillRect(x,y,1,1);
+    });
+  });
+
+  // ── DIAMOND ORE ──
+  texCache[`${DIAMOND}:all`]=mkTex((ctx)=>{
+    const stones=['#888','#808080','#888888'];
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){ctx.fillStyle=stones[Math.floor(px(x,y,65)*stones.length)];ctx.fillRect(x,y,1,1);}
+    [[3,3,3,2],[10,4,3,2],[2,10,2,3],[10,10,3,3],[5,13,2,2],[13,13,2,2]].forEach(([x,y,w,h])=>{
+      ctx.fillStyle='#44bbdd';ctx.fillRect(x,y,w,h);
+      ctx.fillStyle='#88eeff';ctx.fillRect(x,y,1,1);
+    });
+  });
+
+  // ── BEDROCK ──
+  texCache[`${BEDROCK}:all`]=mkTex((ctx)=>{
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){
+      ctx.fillStyle=px(x,y,70)>0.5?'#1a1a1a':'#222';ctx.fillRect(x,y,1,1);
+    }
+    [[4,2,2,2],[10,4,3,2],[2,8,2,3],[8,10,4,2],[13,8,2,3],[5,14,3,2]].forEach(([x,y,w,h])=>{
+      ctx.fillStyle='#333';ctx.fillRect(x,y,w,h);
+    });
+  });
+
+  // ── CRAFTING TABLE ──
+  texCache[`${CRAFTING}:top`]=mkTex((ctx)=>{
+    ctx.fillStyle='#8b6914';ctx.fillRect(0,0,T,T);
+    // Grid lines
+    ctx.fillStyle='#5a3a00';
+    ctx.fillRect(7,0,2,T);ctx.fillRect(0,7,T,2);
+    // Crafting marks
+    ctx.fillStyle='#aa8830';
+    [[1,1,5,5],[9,1,5,5],[1,9,5,5],[9,9,5,5]].forEach(([x,y,w,h])=>ctx.fillRect(x,y,w,h));
+  });
+  texCache[`${CRAFTING}:side`]=mkTex((ctx)=>{
+    ctx.fillStyle='#7a5810';ctx.fillRect(0,0,T,T);
+    // Wood planks pattern
+    [0,8].forEach(ox=>{
+      ctx.fillStyle='#8b6914';ctx.fillRect(ox,0,7,7);
+      ctx.fillStyle='#8b6914';ctx.fillRect(ox,9,7,7);
+    });
+    ctx.fillStyle='#5a3a00';ctx.fillRect(0,7,T,2);ctx.fillRect(7,0,2,T);
+  });
+
+  // ── FURNACE ──
+  texCache[`${FURNACE}:side`]=mkTex((ctx)=>{
+    // Stone body
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){ctx.fillStyle=px(x,y,80)>0.5?'#777':'#666';ctx.fillRect(x,y,1,1);}
+    // Furnace opening (dark arch)
+    ctx.fillStyle='#222';ctx.fillRect(4,6,8,7);
+    ctx.fillStyle='#111';ctx.fillRect(5,5,6,1);
+    // Fire glow
+    ctx.fillStyle='#dd6600';ctx.fillRect(5,9,2,3);ctx.fillRect(9,10,2,2);
+    ctx.fillStyle='#ffaa00';ctx.fillRect(6,11,1,1);ctx.fillRect(9,11,1,1);
+    // Door hinges
+    ctx.fillStyle='#555';ctx.fillRect(4,7,1,2);ctx.fillRect(4,10,1,2);
+  });
+  texCache[`${FURNACE}:top`]=mkTex((ctx)=>{
+    for(let y=0;y<T;y++)for(let x=0;x<T;x++){ctx.fillStyle=px(x,y,82)>0.5?'#777':'#666';ctx.fillRect(x,y,1,1);}
+    ctx.fillStyle='#333';ctx.fillRect(5,5,6,6);
+    ctx.fillStyle='#dd4400';ctx.fillRect(6,6,4,4);
+    ctx.fillStyle='#ff8800';ctx.fillRect(7,7,2,2);
+  });
+}
+bakeTextures();
+
+// ── Texture lookup ──
+function getTex(blockType,faceIdx){
+  // faceIdx: 0=bottom,1=top,2=south,3=north,4=east,5=west
+  const isTop=faceIdx===1,isBottom=faceIdx===0,isSide=faceIdx>=2;
+  if(blockType===GRASS){
+    if(isTop)return texCache[`${GRASS}:top`];
+    if(isSide)return texCache[`${GRASS}:side`];
+    return texCache[`${DIRT}:all`]; // bottom of grass = dirt
+  }
+  if(blockType===DIRT)return texCache[`${DIRT}:all`];
+  if(blockType===STONE)return texCache[`${STONE}:all`];
+  if(blockType===WOOD){
+    if(isTop||isBottom)return texCache[`${WOOD}:top`];
+    return texCache[`${WOOD}:side`];
+  }
+  if(blockType===LEAVES)return texCache[`${LEAVES}:all`];
+  if(blockType===SAND)return texCache[`${SAND}:all`];
+  if(blockType===GRAVEL)return texCache[`${GRAVEL}:all`];
+  if(blockType===WATER)return texCache[`${WATER}:all`];
+  if(blockType===COAL)return texCache[`${COAL}:all`];
+  if(blockType===IRON)return texCache[`${IRON}:all`];
+  if(blockType===GOLD)return texCache[`${GOLD}:all`];
+  if(blockType===DIAMOND)return texCache[`${DIAMOND}:all`];
+  if(blockType===BEDROCK)return texCache[`${BEDROCK}:all`];
+  if(blockType===CRAFTING){
+    if(isTop)return texCache[`${CRAFTING}:top`];
+    return texCache[`${CRAFTING}:side`];
+  }
+  if(blockType===FURNACE){
+    if(isTop)return texCache[`${FURNACE}:top`];
+    return texCache[`${FURNACE}:side`];
+  }
+  return null;
+}
+
+// ── Draw a texture onto a projected quad using canvas transform ──
+// verts: [{sx,sy},…] 4 points in screen space (CCW or CW)
+// Uses affine approximation: split quad into 2 triangles, draw each with setTransform
+function drawTexQuad(ctx,tex,verts,shade,W,H){
+  if(!tex)return;
+  const T=TEX_SIZE;
+  const [p0,p1,p2,p3]=verts; // screen coords
+
+  // Draw two triangles (p0,p1,p2) and (p0,p2,p3) covering the quad
+  // For each triangle map texture corners to screen triangle
+  function drawTriTex(sa,sb,sc,ta,tb,tc){
+    // Compute 2D affine transform mapping tex coords (ta,tb,tc) → screen (sa,sb,sc)
+    // where ta,tb,tc are {u,v} in 0..T and sa,sb,sc are {x,y} screen
+    const u0=ta.u,v0=ta.v,u1=tb.u,v1=tb.v,u2=tc.u,v2=tc.v;
+    const x0=sa.x,y0=sa.y,x1=sb.x,y1=sb.y,x2=sc.x,y2=sc.y;
+    // Solve: [u v 1] * M = [x y]
+    const det=u0*(v1-v2)+u1*(v2-v0)+u2*(v0-v1);
+    if(Math.abs(det)<0.001)return;
+    const a=(x0*(v1-v2)+x1*(v2-v0)+x2*(v0-v1))/det;
+    const b=(x0*(u2-u1)+x1*(u0-u2)+x2*(u1-u0))/det;
+    const c=(x0*(u1*v2-u2*v1)+x1*(u2*v0-u0*v2)+x2*(u0*v1-u1*v0))/det;
+    const d=(y0*(v1-v2)+y1*(v2-v0)+y2*(v0-v1))/det;
+    const e=(y0*(u2-u1)+y1*(u0-u2)+y2*(u1-u0))/det;
+    const f=(y0*(u1*v2-u2*v1)+y1*(u2*v0-u0*v2)+y2*(u0*v1-u1*v0))/det;
+
+    ctx.save();
+    // Clip to the triangle so adjacent triangles don't bleed
+    ctx.beginPath();
+    ctx.moveTo(sa.x,sa.y);ctx.lineTo(sb.x,sb.y);ctx.lineTo(sc.x,sc.y);
+    ctx.closePath();ctx.clip();
+
+    ctx.setTransform(a,d,b,e,c,f);
+    // Shade overlay
+    ctx.globalAlpha=1;
+    ctx.drawImage(tex,0,0,T,T);
+    ctx.restore();
+
+    // Shade darkening pass
+    if(shade<1){
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(sa.x,sa.y);ctx.lineTo(sb.x,sb.y);ctx.lineTo(sc.x,sc.y);
+      ctx.closePath();ctx.clip();
+      ctx.fillStyle=`rgba(0,0,0,${1-shade})`;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Texture corners mapping for the quad faces
+  // Quad vertex order: face-dependent. We'll map:
+  // p0→(0,T), p1→(T,T), p2→(T,0), p3→(0,0)  (standard quad UV)
+  const uv0={u:0,v:T},uv1={u:T,v:T},uv2={u:T,v:0},uv3={u:0,v:0};
+
+  drawTriTex(p0,p1,p2, uv0,uv1,uv2);
+  drawTriTex(p0,p2,p3, uv0,uv2,uv3);
+}
+
+// ══════════════════════════════════════════════════════════
 // ITEM ICON RENDERER  
 // ══════════════════════════════════════════════════════════
 function shadeColor(hex,s){
@@ -774,7 +1156,8 @@ function renderGame(){
   for(const {bx,by,bz,b,pts} of projected){
     const cols=BCOLORS[b];if(!cols)continue;
     const isHit=hitBlock&&hitBlock.x===bx&&hitBlock.y===by&&hitBlock.z===bz;
-    for(const face of FACES){
+    for(let fi=0;fi<FACES.length;fi++){
+      const face=FACES[fi];
       const [nx,ny,nz]=face.normal;
       const nb=getBlock(bx+nx,by+ny,bz+nz);
       if(BLOCK_SOLID[nb]&&!BLOCK_TRANSPARENT[nb])continue;
@@ -783,12 +1166,27 @@ function renderGame(){
       const verts=face.verts.map(i=>pts[i]);
       if(verts.some(v=>v.depth<0.05))continue;
       if(!verts.some(v=>v.sx>-W&&v.sx<W*2&&v.sy>-H&&v.sy<H*2))continue;
-      gctx.beginPath();gctx.moveTo(verts[0].sx,verts[0].sy);
-      for(let i=1;i<verts.length;i++)gctx.lineTo(verts[i].sx,verts[i].sy);
-      gctx.closePath();
-      gctx.fillStyle=shadeColor(cols[face.ci%cols.length],face.shade*(b===WATER?0.7:1));
-      gctx.fill();
-      if(isHit){gctx.strokeStyle='rgba(0,0,0,0.35)';gctx.lineWidth=0.5;gctx.stroke();gctx.fillStyle='rgba(255,255,255,0.12)';gctx.fill();}
+
+      // Try to draw textured quad; fall back to flat colour
+      const tex=getTex(b,fi);
+      const screenVerts=verts.map(v=>({x:v.sx,y:v.sy}));
+      if(tex){
+        drawTexQuad(gctx,tex,screenVerts,face.shade*(b===WATER?0.7:1),W,H);
+      } else {
+        gctx.beginPath();gctx.moveTo(verts[0].sx,verts[0].sy);
+        for(let i=1;i<verts.length;i++)gctx.lineTo(verts[i].sx,verts[i].sy);
+        gctx.closePath();
+        gctx.fillStyle=shadeColor(cols[face.ci%cols.length],face.shade*(b===WATER?0.7:1));
+        gctx.fill();
+      }
+
+      if(isHit){
+        gctx.beginPath();gctx.moveTo(verts[0].sx,verts[0].sy);
+        for(let i=1;i<verts.length;i++)gctx.lineTo(verts[i].sx,verts[i].sy);
+        gctx.closePath();
+        gctx.strokeStyle='rgba(0,0,0,0.5)';gctx.lineWidth=1;gctx.stroke();
+        gctx.fillStyle='rgba(255,255,255,0.15)';gctx.fill();
+      }
     }
   }
 
