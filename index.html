@@ -210,7 +210,7 @@ html,body{width:100%;height:100%;background:#000;font-family:'Press Start 2P',mo
 
     <!-- Login form -->
     <div id="form-login" style="width:100%;display:flex;flex-direction:column;gap:12px;">
-      <div class="auth-field"><label>Email</label><input type="email" id="login-email" placeholder="you@email.com" autocomplete="email"></div>
+      <div class="auth-field"><label>Username</label><input type="text" id="login-username" placeholder="Steve123" autocomplete="username"></div>
       <div class="auth-field"><label>Password</label><input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"></div>
       <div id="auth-error" style="display:none;"></div>
       <button class="auth-btn" id="btn-login"><div class="auth-btn-inner">Login</div></button>
@@ -219,7 +219,6 @@ html,body{width:100%;height:100%;background:#000;font-family:'Press Start 2P',mo
     <!-- Register form -->
     <div id="form-register" style="width:100%;display:flex;flex-direction:column;gap:12px;display:none;">
       <div class="auth-field"><label>Username</label><input type="text" id="reg-username" placeholder="Steve123" autocomplete="username" maxlength="20"></div>
-      <div class="auth-field"><label>Email</label><input type="email" id="reg-email" placeholder="you@email.com" autocomplete="email"></div>
       <div class="auth-field"><label>Password</label><input type="password" id="reg-password" placeholder="min 6 characters" autocomplete="new-password"></div>
       <div id="auth-error-reg" style="display:none;font-size:7px;color:#ff6666;text-shadow:1px 1px 0 #000;text-align:center;"></div>
       <div id="auth-success-reg" style="display:none;font-size:7px;color:#7ec850;text-shadow:1px 1px 0 #000;text-align:center;"></div>
@@ -347,96 +346,54 @@ html,body{width:100%;height:100%;background:#000;font-family:'Press Start 2P',mo
 
 <script>
 // ══════════════════════════════════════════════════════════
-// SUPABASE AUTH
+// SUPABASE AUTH  (username + password, no email)
+// Uses database functions: register_player / login_player
 // ══════════════════════════════════════════════════════════
 const SUPA_URL='https://cizhyzwatjptrnueiyny.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpemh5endhdGpwdHJudWVpeW55Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNDU5MDksImV4cCI6MjA4OTcyMTkwOX0.5hpNbu31VEAVxOAoRbLLOTNXbq1Ni7UY2juKdIyMIoM';
 
-// Lightweight Supabase REST auth wrapper (no SDK needed)
-const supa={
-  async signUp(email,password,username){
-    // 1. Create auth user
-    const r=await fetch(`${SUPA_URL}/auth/v1/signup`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','apikey':SUPA_KEY},
-      body:JSON.stringify({email,password})
-    });
-    const d=await r.json();
-    if(!r.ok) throw new Error(d.msg||d.error_description||'Sign up failed');
-    // 2. Insert player profile row
-    if(d.user?.id){
-      await fetch(`${SUPA_URL}/rest/v1/players`,{
-        method:'POST',
-        headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':`Bearer ${d.access_token}`},
-        body:JSON.stringify({id:d.user.id,username,email})
-      });
-    }
-    return d;
-  },
-  async signIn(email,password){
-    const r=await fetch(`${SUPA_URL}/auth/v1/token?grant_type=password`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','apikey':SUPA_KEY},
-      body:JSON.stringify({email,password})
-    });
-    const d=await r.json();
-    if(!r.ok) throw new Error(d.msg||d.error_description||'Login failed');
-    return d;
-  },
-  async getUser(token){
-    const r=await fetch(`${SUPA_URL}/auth/v1/user`,{
-      headers:{'apikey':SUPA_KEY,'Authorization':`Bearer ${token}`}
-    });
-    if(!r.ok) return null;
-    return r.json();
-  },
-  async getProfile(token,userId){
-    const r=await fetch(`${SUPA_URL}/rest/v1/players?id=eq.${userId}&select=username`,{
-      headers:{'apikey':SUPA_KEY,'Authorization':`Bearer ${token}`}
-    });
-    if(!r.ok) return null;
-    const rows=await r.json();
-    return rows[0]||null;
-  }
-};
+async function rpc(fn,params){
+  const r=await fetch(`${SUPA_URL}/rest/v1/rpc/${fn}`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':SUPA_KEY},
+    body:JSON.stringify(params)
+  });
+  const d=await r.json();
+  if(!r.ok) throw new Error(d.message||d.hint||'Request failed');
+  return d;
+}
 
-// Session state
-let authSession=null; // {access_token, user:{id,email}, username}
+// Session state — just the player row {id, username}
+let authPlayer=null; // {id, username} or null
 let isGuest=false;
 
-function setSession(session,username){
-  authSession=session;
+function setSession(player){
+  authPlayer=player;
   const badge=document.getElementById('auth-user-badge');
-  if(session&&username){
-    badge.textContent='▶ '+username;
+  if(player){
+    badge.textContent='▶ '+player.username;
     badge.style.display='block';
+    localStorage.setItem('acecraft_player',JSON.stringify(player));
   } else if(isGuest){
     badge.textContent='▶ Guest';
     badge.style.display='block';
+    localStorage.removeItem('acecraft_player');
   } else {
     badge.style.display='none';
+    localStorage.removeItem('acecraft_player');
   }
 }
 
-// Restore session from localStorage on page load
+// Restore session from localStorage
 function tryRestoreSession(){
   try{
-    const raw=localStorage.getItem('acecraft_session');
+    const raw=localStorage.getItem('acecraft_player');
     if(!raw) return false;
-    const s=JSON.parse(raw);
-    if(!s.access_token) return false;
-    // Verify token is still valid
-    supa.getUser(s.access_token).then(user=>{
-      if(user){
-        supa.getProfile(s.access_token,user.id).then(profile=>{
-          authSession={access_token:s.access_token,user};
-          setSession(authSession,profile?.username||user.email);
-          showScreen(document.getElementById('screen-main'));
-        });
-      } else {
-        localStorage.removeItem('acecraft_session');
-      }
-    });
+    const p=JSON.parse(raw);
+    if(!p.id||!p.username) return false;
+    authPlayer=p;
+    setSession(p);
+    showScreen(document.getElementById('screen-main'));
     return true;
   } catch{ return false; }
 }
@@ -457,20 +414,18 @@ document.getElementById('tab-register').addEventListener('click',()=>{
 
 // ── Login ──
 document.getElementById('btn-login').addEventListener('click',async()=>{
-  const email=document.getElementById('login-email').value.trim();
+  const username=document.getElementById('login-username').value.trim();
   const password=document.getElementById('login-password').value;
   const errEl=document.getElementById('auth-error');
   errEl.style.display='none';
-  if(!email||!password){errEl.textContent='Please fill in all fields.';errEl.style.display='block';return;}
+  if(!username||!password){errEl.textContent='Please fill in all fields.';errEl.style.display='block';return;}
   const btn=document.getElementById('btn-login');
   btn.querySelector('.auth-btn-inner').textContent='Logging in...';
   try{
-    const session=await supa.signIn(email,password);
-    const profile=await supa.getProfile(session.access_token,session.user.id);
-    const username=profile?.username||session.user.email;
-    localStorage.setItem('acecraft_session',JSON.stringify({access_token:session.access_token}));
-    setSession(session,username);
+    const result=await rpc('login_player',{p_username:username,p_password:password});
+    if(result.error){errEl.textContent=result.error;errEl.style.display='block';return;}
     isGuest=false;
+    setSession({id:result.id,username:result.username});
     showScreen(document.getElementById('screen-main'));
   } catch(e){
     errEl.textContent=e.message;errEl.style.display='block';
@@ -482,29 +437,22 @@ document.getElementById('btn-login').addEventListener('click',async()=>{
 // ── Register ──
 document.getElementById('btn-register').addEventListener('click',async()=>{
   const username=document.getElementById('reg-username').value.trim();
-  const email=document.getElementById('reg-email').value.trim();
   const password=document.getElementById('reg-password').value;
   const errEl=document.getElementById('auth-error-reg');
   const okEl=document.getElementById('auth-success-reg');
   errEl.style.display='none';okEl.style.display='none';
-  if(!username||!email||!password){errEl.textContent='Please fill in all fields.';errEl.style.display='block';return;}
+  if(!username||!password){errEl.textContent='Please fill in all fields.';errEl.style.display='block';return;}
   if(username.length<3){errEl.textContent='Username must be 3+ characters.';errEl.style.display='block';return;}
   if(password.length<6){errEl.textContent='Password must be 6+ characters.';errEl.style.display='block';return;}
   const btn=document.getElementById('btn-register');
   btn.querySelector('.auth-btn-inner').textContent='Creating...';
   try{
-    const result=await supa.signUp(email,password,username);
-    if(result.user&&!result.session){
-      // Email confirmation required
-      okEl.textContent='Check your email to confirm your account!';
-      okEl.style.display='block';
-    } else if(result.session){
-      // Auto-confirmed
-      localStorage.setItem('acecraft_session',JSON.stringify({access_token:result.session.access_token}));
-      setSession(result.session,username);
-      isGuest=false;
-      showScreen(document.getElementById('screen-main'));
-    }
+    const result=await rpc('register_player',{p_username:username,p_password:password});
+    if(result.error){errEl.textContent=result.error;errEl.style.display='block';return;}
+    // Auto-login after register
+    isGuest=false;
+    setSession({id:result.id,username:result.username});
+    showScreen(document.getElementById('screen-main'));
   } catch(e){
     errEl.textContent=e.message;errEl.style.display='block';
   } finally{
@@ -514,16 +462,16 @@ document.getElementById('btn-register').addEventListener('click',async()=>{
 
 // ── Guest ──
 document.getElementById('btn-play-guest').addEventListener('click',()=>{
-  isGuest=true;authSession=null;
-  setSession(null,null);
+  isGuest=true;authPlayer=null;
+  setSession(null);
   showScreen(document.getElementById('screen-main'));
 });
 
-// ── Allow pressing Enter to submit ──
-['login-email','login-password'].forEach(id=>{
+// ── Enter key support ──
+['login-username','login-password'].forEach(id=>{
   document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('btn-login').click();});
 });
-['reg-username','reg-email','reg-password'].forEach(id=>{
+['reg-username','reg-password'].forEach(id=>{
   document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('btn-register').click();});
 });
 
